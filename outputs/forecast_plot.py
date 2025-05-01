@@ -77,9 +77,9 @@ def _():
 
     price_hist = hist_series(PATHS["price_hist"], la, "Price (£)", end_year=2025)
     aff_hist   = hist_series(PATHS["aff_hist"],  la, "Aff ratio",  end_year=2024)
-    job_hist   = hist_series(PATHS["job"],       la, "Job density", end_year=2025)
-    dwell_hist = hist_series(PATHS["dwell"],     la, "Net additional dwellings", 2025)
-    pop_hist   = hist_series(PATHS["pop"],       la, "Population", end_year=2025)
+    job_hist   = hist_series(PATHS["job"],       la, "Job density", end_year=2022)
+    dwell_hist = hist_series(PATHS["dwell"],     la, "Net additional dwellings", 2022)
+    pop_hist   = hist_series(PATHS["pop"],       la, "Population", end_year=2022)
 
     drivers = {"Job density": job_hist,
                "Net additional dwellings": dwell_hist,
