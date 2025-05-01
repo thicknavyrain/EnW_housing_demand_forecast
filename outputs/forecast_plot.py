@@ -19,8 +19,16 @@ def _():
         "aff_hist"   : "processed_data/affordability_ratios.csv",
         "dwell"      : "processed_data/net_additional_dwellings_cleaned.csv",
         "job"        : "processed_data/job_density.csv",
-        "pop"        : "processed_data/population.csv"
+        "pop"        : "processed_data/population.csv",
+        "la_index"   : "data_sources/LA_index.csv"                     # <-- new
     }
+
+    # ---------- LA-name lookup ----------
+    la_index = pd.read_csv(PATHS["la_index"])
+    code_col = [c for c in la_index.columns if "code" in c.lower()][0]
+    name_col = [c for c in la_index.columns if "LAD23NM" in c][0]
+    LA_NAME  = dict(zip(la_index[code_col].astype(str).str.strip(),
+                        la_index[name_col].astype(str).str.strip()))
 
     # ---------- helper: pull history 2016-end_year ----------
     def hist_series(path, la_code, nice_name, end_year):
@@ -29,22 +37,21 @@ def _():
         yrs = [c for c in df.columns if re.fullmatch(r"\d{4}", str(c))]
         s = (df.set_index(la_col)
                .loc[la_code, yrs]
-               .apply(pd.to_numeric, errors="coerce")       # <- keep NaN, no zeros
+               .apply(pd.to_numeric, errors="coerce")
                .rename(index=int)
                .reindex(range(2016, end_year + 1))
                .ffill())
         s.name = nice_name
         return s
 
-
     # ---------- load wide forecast & pick random LA ----------
     fcast = pd.read_csv(PATHS["forecast"])
     la    = random.choice(fcast.LA.unique())
+    la_name = LA_NAME.get(la, la)       # fall back to code if name missing
     row   = fcast.loc[fcast.LA == la].iloc[0]
 
     # ---------- tidy-up parser (point + CI + SHAP) ----------
     def parse_forecast_row(row, target_key):
-        """Return tidy frame for given target & its horizon-1 SHAP dict."""
         recs, shap_local = [], None
         for col, val in row.items():
             if col == "LA" or col.endswith("_feature_importance"):
@@ -58,7 +65,6 @@ def _():
                 yr, tgt = int(m[1]), m[2]
                 if tgt != target_key: continue
                 fi = json.loads(row[f"{yr}_{tgt}_feature_importance"])
-                # capture SHAP for horizon-1
                 if ((target_key == "housing_price" and yr == 2026) or
                     (target_key == "affordability_ratio" and yr == 2025)):
                     shap_local = fi
@@ -67,26 +73,18 @@ def _():
         return pd.DataFrame(recs), shap_local
 
     # ---------- build historical drivers ----------
-    # price_hist = (pd.read_csv(PATHS["price_hist"]).set_index("LA Code")
-    #                 .loc[la].filter(regex=r"^\d{4}$").astype(float)
-    #                 .rename(index=int).reindex(range(2016, 2026)).ffill())
-    # aff_hist   = hist_series(PATHS["aff_hist"],  la, "Aff ratio")
-    # job_hist   = hist_series(PATHS["job"],       la, "Job density")
-    # dwell_hist = hist_series(PATHS["dwell"],     la, "Net additional dwellings")
-    # pop_hist   = hist_series(PATHS["pop"],       la, "Population")
-
     price_hist = hist_series(PATHS["price_hist"], la, "Price (£)", end_year=2025)
     aff_hist   = hist_series(PATHS["aff_hist"],  la, "Aff ratio",  end_year=2024)
-    job_hist   = hist_series(PATHS["job"],       la, "Job density", end_year=2022)
+    job_hist   = hist_series(PATHS["job"],       la, "Job density",  end_year=2022)
     dwell_hist = hist_series(PATHS["dwell"],     la, "Net additional dwellings", 2022)
-    pop_hist   = hist_series(PATHS["pop"],       la, "Population", end_year=2022)
+    pop_hist   = hist_series(PATHS["pop"],       la, "Population",   end_year=2022)
 
     drivers = {"Job density": job_hist,
                "Net additional dwellings": dwell_hist,
                "Population": pop_hist}
 
     # ---------- function to make & save a figure ----------
-    def build_save(target_key, hist_series, y_label, file_stub):
+    def build_save(target_key, hist_ser, y_label, file_stub):
         tidy, shap1 = parse_forecast_row(row, target_key)
 
         plt.style.use("seaborn-v0_8-whitegrid")
@@ -102,39 +100,39 @@ def _():
         ax_drv  = [fig.add_subplot(gs_r[i,0]) for i in range(3)]
 
         # --- main series + forecast ---
-        ax_main.plot(hist_series.index, hist_series.values, lw=2, label="Historical")
+        ax_main.plot(hist_ser.index, hist_ser.values, lw=2, label="Historical")
         ax_main.plot(tidy.Year, tidy.Point, lw=2, marker="o", label="Forecast")
         ax_main.fill_between(tidy.Year, tidy.CI_lower, tidy.CI_upper,
                              alpha=.15, color="tab:blue", label="95 % CI")
-        ax_main.set_title(f"{la}: {target_key.replace('_',' ')} forecast".title())
+        ax_main.set_title(f"{la_name}: {target_key.replace('_',' ').title()} Forecast")
         ax_main.set_ylabel(y_label); ax_main.legend()
 
         # --- SHAP bar ---
         if shap1:
-            names  = [n.replace("_"," ").title() for n in shap1]
-            values = list(shap1.values())
-            ax_shap.barh(names, values, color="slategray")
+            names  = [n.replace('_',' ').title() for n in shap1]
+            vals   = list(shap1.values())
+            ax_shap.barh(names, vals, color="slategray")
             ax_shap.set_title("Impact on Price" if "price" in target_key
                               else "Impact on Affordability Ratio")
-            ax_shap.set_xlabel("£" if "price" in target_key else "ratio units")
-            ax_shap.grid(alpha=.2, axis="x")
+            ax_shap.set_xlabel("£" if "price" in target_key else "Ratio units")
+            ax_shap.grid(alpha=.2, axis='x')
 
-        # --- driver panels (right column) ---
+        # --- driver panels ---
         for ax,(title,series),col in zip(ax_drv, drivers.items(),
-                                         ["tab:orange","tab:green","tab:red"]):
+                                         ['tab:orange','tab:green','tab:red']):
             ax.plot(series.index, series.values, color=col, lw=1.8)
             ax.set_title(title); ax.set_xlim(2016, 2025)
             ax.set_box_aspect(1); ax.grid(alpha=.3)
 
-        fname = f"{la}_{file_stub}.png"
+        out_dir = Path("plots"); out_dir.mkdir(exist_ok=True)
+        fname = out_dir / f"{la}_{file_stub}.png"
         fig.savefig(fname, bbox_inches='tight', dpi=300)
-        plt.show()
-        plt.close(fig)
+        plt.show(); plt.close(fig)
         print("Saved →", fname)
 
     # ---------- create & save both plots ----------
-    build_save("housing_price",        price_hist, "£",           "price_forecast")
-    build_save("affordability_ratio",  aff_hist,   "Ratio",       "aff_forecast")
+    build_save("housing_price",        price_hist, "£",     "price_forecast")
+    build_save("affordability_ratio",  aff_hist,   "Ratio", "aff_forecast")
 
     return
 
