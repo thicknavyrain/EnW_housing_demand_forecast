@@ -15,14 +15,19 @@ df = pd.read_csv('data/output_mock.csv')
 years = sorted({int(c.split('_')[0]) for c in df.columns if c.endswith('housing_price')})
 years = [str(y) for y in years]
 
-gdf_lad = gpd.read_file(
-    'data/Local_Authority_Districts_(April_2023)_Names_and_Codes_in_the_United_Kingdom.shp'
-)
-gdf_lad = gdf_lad.to_crs(epsg=4326)
-gdf_lad['geometry'] = gdf_lad.geometry.simplify(
-    tolerance=0.005, preserve_topology=True
-)
+# gdf_lad = gpd.read_file(
+#     'data/Local_Authority_Districts_(April_2023)_Names_and_Codes_in_the_United_Kingdom.shp'
+# )
+# gdf_lad = gdf_lad.to_crs(epsg=4326)
+# gdf_lad['geometry'] = gdf_lad.geometry.simplify(
+#     tolerance=0.005, preserve_topology=True
+# )
 
+gdf_lad = gpd.read_file("gdf_lad.shp")
+gdf_lad = gdf_lad.rename(columns={'LAD24CD':"LAD23CD",
+                                  'LAD24NM':"LAD23NM"})
+
+print(gdf_lad.columns)
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
 # — Dash setup (light theme + icons) —
